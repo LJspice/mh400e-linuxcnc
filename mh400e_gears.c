@@ -53,8 +53,6 @@ static struct
     hal_bit_t *notify_spindle_at_speed;
     bool spindle_on_before_shift;
     shaft_data_t backgear;
-    shaft_data_t midrange;
-    shaft_data_t input_stage;
     long delay;
     statefunc next;
 } g_gearbox_data;
@@ -104,58 +102,6 @@ FUNCTION(gearbox_setup)
     g_gearbox_data.backgear.target_mask =
         mh400e_gears[MH400E_NEUTRAL_GEAR_INDEX].value; /* neutral */
 
-    g_gearbox_data.midrange.state = SHAFT_STATE_OFF;
-    #pragma push_macro("middle_left")
-    #pragma push_macro("middle_right")
-    #pragma push_macro("middle_center")
-    #pragma push_macro("middle_left_center")
-    #undef middle_left
-    #undef middle_right
-    #undef middle_center
-    #undef middle_left_center
-    g_gearbox_data.midrange.status_pins = (pin_group_t)
-    {
-        __comp_inst->middle_left,
-        __comp_inst->middle_right,
-        __comp_inst->middle_center,
-        __comp_inst->middle_left_center
-    };
-    #pragma pop_macro("middle_left")
-    #pragma pop_macro("middle_right")
-    #pragma pop_macro("middle_center")
-    #pragma pop_macro("middle_left_center")
-    g_gearbox_data.midrange.motor_on = &midrange_motor;
-    g_gearbox_data.midrange.motor_reverse = &reverse_direction;
-    g_gearbox_data.midrange.motor_slow = &motor_lowspeed;
-    g_gearbox_data.midrange.current_mask = 0;
-    g_gearbox_data.midrange.target_mask = 0; /* don't care for neutral */
-
-    g_gearbox_data.input_stage.state = SHAFT_STATE_OFF;
-    #pragma push_macro("input_left")
-    #pragma push_macro("input_right")
-    #pragma push_macro("input_center")
-    #pragma push_macro("input_left_center")
-    #undef input_left
-    #undef input_right
-    #undef input_center
-    #undef input_left_center
-    g_gearbox_data.input_stage.status_pins = (pin_group_t)
-    {
-        __comp_inst->input_left,
-        __comp_inst->input_right,
-        __comp_inst->input_center,
-        __comp_inst->input_left_center
-    };
-    #pragma pop_macro("input_left")
-    #pragma pop_macro("input_right")
-    #pragma pop_macro("input_center")
-    #pragma pop_macro("input_left_center")
-    g_gearbox_data.input_stage.motor_on = &input_stage_motor;
-    g_gearbox_data.input_stage.motor_reverse = &reverse_direction;
-    g_gearbox_data.input_stage.motor_slow = &motor_lowspeed;
-    g_gearbox_data.input_stage.current_mask = 0;
-    g_gearbox_data.input_stage.target_mask = 0; /* don't care for neutral */
-
     #pragma push_macro("spindle_stopped")
     #undef spindle_stopped
     g_gearbox_data.is_spindle_stopped = __comp_inst->spindle_stopped;
@@ -194,10 +140,6 @@ static void update_current_pingroup_masks(void)
 {
     g_gearbox_data.backgear.current_mask =
         get_bitmask_from_pingroup(&g_gearbox_data.backgear.status_pins);
-    g_gearbox_data.midrange.current_mask =
-        get_bitmask_from_pingroup(&g_gearbox_data.midrange.status_pins);
-    g_gearbox_data.input_stage.current_mask =
-        get_bitmask_from_pingroup(&g_gearbox_data.input_stage.status_pins);
 }
 
 static bool estop_on_spindle_running(void)
@@ -259,9 +201,9 @@ static bool gearshift_wait_delay(long period)
 /* From:
  * https://forum.linuxcnc.org/12-milling/33035-retrofitting-a-1986-maho-mh400e?start=460#117021
  *
- * 1. if u need to go to the left then turn cw
- * 2. if u need to go to the right than turn ccw
- * 3. if u need to go to the middle and Left-Center is 1 then turn ccw else cw
+ * 1. if you need to go to the left then turn cw
+ * 2. if you need to go to the right than turn ccw
+ * 3. if you need to go to the middle and Left-Center is 1 then turn ccw else cw
  *
  * ┌───┐
  * ┘   └──────────────── left
@@ -533,17 +475,6 @@ static void gearshift_backgear(long period)
                     gearshift_stop, period);
 }
 
-static void gearshift_midrange(long period)
-{
-    gearshift_stage(&(g_gearbox_data.midrange), gearshift_midrange,
-                    gearshift_backgear, period);
-}
-
-static void gearshift_input_stage(long period)
-{
-    gearshift_stage(&(g_gearbox_data.input_stage), gearshift_input_stage,
-                    gearshift_midrange, period);
-}
 
 /* Call this function once per each thread cycle to handle gearshifting,
  * implies that gearshift_start() has been called in order to set the
@@ -571,10 +502,7 @@ static void gearshift_start(pair_t *target_gear, long period)
         return;
     }
 
-    g_gearbox_data.backgear.target_mask = (target_gear->value) & 0x000f;
-    g_gearbox_data.midrange.target_mask = (target_gear->value & 0x00f0) >> 4;
-    g_gearbox_data.input_stage.target_mask = 
-                                    (target_gear->value & 0x0f00) >> 8;
+    g_gearbox_data.backgear.target_mask = 	(target_gear->value) & 0x000f;
 
     /* Make sure to leave 100ms between setting start_gear_shift to "on"
      * and further operations */
@@ -599,8 +527,6 @@ static void gearshift_start(pair_t *target_gear, long period)
 /* Reset pins and state machine if an emergency stop was triggered. */
 static void gearbox_handle_estop(void)
 {
-    *g_gearbox_data.input_stage.motor_on = false;
-    *g_gearbox_data.midrange.motor_on = false;
     *g_gearbox_data.backgear.motor_on = false;
     /* There are no separate pins for revers/slow for each shaft, each
      * shaft structure has pointers to the same pins, so its enough to
